@@ -1,0 +1,407 @@
+<div class="vista-container">
+  
+  <!-- Global Error Banner -->
+  <div *ngIf="errorMessage()" class="alert-box error">{{ errorMessage() }}</div>
+
+  <!-- ========================================================
+       PAGE 1: SEAT SELECTION & HOLD VIEW
+       ======================================================== -->
+  <div *ngIf="!showCheckoutPage() && !bookingSuccess()">
+    <header class="vista-header">
+      <h2>Vista Stage & Arena</h2>
+      <p>Select your seats to reserve for 5 minutes</p>
+    </header>
+
+    <div class="booking-layout">
+      <!-- LEFT: Cinema Grid -->
+      <div class="stage-section">
+        <div class="stage-curved-container">
+          <div class="curved-screen-bar"></div>
+          <span class="screen-text">STAGE / SCREEN</span>
+        </div>
+
+        <div class="arena-seating-container">
+          <ng-container *ngFor="let row of rows(); let rIdx = index">
+            <!-- Tier Header -->
+            <div *ngIf="rIdx === 0 || rows()[rIdx - 1].sectionName !== row.sectionName" class="tier-separator">
+              <span class="tier-badge" [ngClass]="row.sectionName.toLowerCase()">
+                {{ row.sectionName }} • ₹{{ row.seats[0]?.price }}
+              </span>
+            </div>
+
+            <!-- Row of Seats -->
+            <div class="seat-row" [attr.data-row]="row.rowLabel">
+              <span class="row-indicator">{{ row.rowLabel }}</span>
+
+              <div class="row-seats">
+                <button
+                  *ngFor="let seat of row.seats"
+                  type="button"
+                  class="seat-btn"
+                  [class.vvip]="row.sectionName === 'VVIP'"
+                  [class.vip]="row.sectionName === 'VIP'"
+                  [class.regular]="row.sectionName === 'REGULAR'"
+                  [class.available]="!seat.status || seat.status === 'AVAILABLE'"
+                  [class.selected]="selectedSeatIds().includes(seat.id) && seat.status !== 'HOLD'"
+                  [class.hold]="seat.status === 'HOLD' || (holdDetails() && selectedSeatIds().includes(seat.id))"
+                  [class.booked]="seat.status === 'BOOKED'"
+                  [disabled]="(seat.status && seat.status !== 'AVAILABLE') || !!holdDetails()"
+                  (click)="toggleSeat(seat)">
+                  <span class="seat-label">{{ getSeatLabel(seat) }}</span>
+                  <span class="seat-cost">₹{{ seat.price }}</span>
+                </button>
+              </div>
+
+              <span class="row-indicator">{{ row.rowLabel }}</span>
+            </div>
+          </ng-container>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend">
+          <span><i class="box available"></i> Available</span>
+          <span><i class="box selected"></i> Selected</span>
+          <span><i class="box hold"></i> On Hold</span>
+          <span><i class="box booked"></i> Booked</span>
+        </div>
+      </div>
+
+      <!-- RIGHT: Summary Card -->
+      <div class="summary-section">
+        <h3>Reservation Summary</h3>
+
+        <!-- Hold Expiration Badge -->
+        <div *ngIf="holdDetails()" class="timer-box">
+          ⏳ Hold expires in: <span class="countdown">{{ timeRemaining() }}</span>
+        </div>
+
+        <!-- Empty Cart -->
+        <div *ngIf="selectedSeatsList().length === 0" class="empty-cart-state">
+          <p>No seats selected yet.</p>
+          <small>Click on any available seat on the grid to add it to your booking.</small>
+        </div>
+
+        <!-- Cart Breakdown -->
+        <div *ngIf="selectedSeatsList().length > 0" class="cart-wrapper">
+          <div class="cart-items-list">
+            <div *ngFor="let seat of selectedSeatsList()" class="cart-item">
+              <div class="seat-info">
+                <span class="seat-tag">{{ getSeatLabel(seat) }}</span>
+                <span class="tier-pill" [ngClass]="getSeatTier(seat).toLowerCase()">
+                  {{ getSeatTier(seat) }}
+                </span>
+              </div>
+              <div class="price-action">
+                <span class="item-price">₹{{ seat.price }}</span>
+                <button
+                  type="button"
+                  class="remove-btn"
+                  *ngIf="!holdDetails()"
+                  (click)="removeSeat(seat.id)">
+                  ✕
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="bill-breakdown">
+            <div class="bill-row">
+              <span>Base Fare ({{ selectedSeatIds().length }} seats)</span>
+              <span>₹{{ basePrice() }}</span>
+            </div>
+            <div class="bill-row">
+              <span>Convenience Fee</span>
+              <span>₹{{ convenienceFee() }}</span>
+            </div>
+            <div class="bill-row">
+              <span>GST (18%)</span>
+              <span>₹{{ taxAmount() }}</span>
+            </div>
+            <hr class="bill-divider" />
+            <div class="bill-row total">
+              <span>Total Payable</span>
+              <span class="grand-total">₹{{ finalTotal() }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACTION BUTTONS -->
+        <div class="action-buttons-group">
+          <button
+            type="button"
+            class="primary-btn hold-action"
+            [disabled]="!selectedSeatIds().length || !!holdDetails()"
+            (click)="holdSelectedSeats()">
+            {{ holdDetails() ? '🔒 Seats On Hold' : '🔒 Hold Selected Seats' }}
+          </button>
+
+          <button
+            type="button"
+            class="direct-book-btn"
+            [disabled]="!selectedSeatIds().length"
+            (click)="navigateToCheckout()">
+            ⚡ Book Directly
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       PAGE 2: FRESH FULL-PAGE CHECKOUT & PAYMENT GATEWAY VIEW
+       ======================================================== -->
+  <div *ngIf="showCheckoutPage() && !bookingSuccess()" class="checkout-page-container">
+    <div class="checkout-top-bar">
+      <button type="button" class="back-nav-btn" (click)="backToSeatSelection()">
+        ← Back to Seat Selection
+      </button>
+      <div *ngIf="holdDetails()" class="timer-chip">
+        ⏱️ Reserved for: <strong>{{ timeRemaining() }}</strong>
+      </div>
+    </div>
+
+    <!-- FIXED: <div class="checkout-grid"> -->
+    <div class="checkout-grid">
+      <!-- Left Column: Personal Information & Payment Method -->
+      <div class="payment-card">
+        <h3>1. Attendee Information</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Full Name *</label>
+            <input type="text" placeholder="e.g. user" [(ngModel)]="customerName" />
+          </div>
+          <div class="form-group">
+            <label>Email Address *</label>
+            <input type="email" placeholder="e.g. user@example.com" [(ngModel)]="customerEmail" />
+          </div>
+          <div class="form-group full-width">
+            <label>Phone Number</label>
+            <input type="tel" placeholder="+91 98765 43210" [(ngModel)]="customerPhone" />
+          </div>
+        </div>
+
+        <h3 style="margin-top: 2rem;">2. Payment Method</h3>
+        <div class="payment-tabs">
+          <div class="pay-option" [class.active]="paymentMethod === 'UPI'" (click)="paymentMethod = 'UPI'">
+            <span class="pay-title">UPI / QR</span>
+            <small>Instant payment via any UPI App</small>
+          </div>
+          <div class="pay-option" [class.active]="paymentMethod === 'CREDIT_CARD'" (click)="paymentMethod = 'CREDIT_CARD'">
+            <span class="pay-title">Cards</span>
+            <small>Credit / Debit / ATM Cards</small>
+          </div>
+          <div class="pay-option" [class.active]="paymentMethod === 'NET_BANKING'" (click)="paymentMethod = 'NET_BANKING'">
+            <span class="pay-title">Net Banking</span>
+            <small>All Indian major banks</small>
+          </div>
+        </div>
+
+        <!-- UPI Tab Content -->
+        <div *ngIf="paymentMethod === 'UPI'" class="gateway-tab-body">
+          <div class="upi-action-box">
+            <div class="upi-info">
+              <h4>Pay via Any UPI App</h4>
+              <p>Scan QR code using GPay, PhonePe, Paytm, or BHIM</p>
+            </div>
+            <button type="button" class="btn-open-qr" (click)="openUpiQrModal()">
+              <span>📱</span> Show Payment QR Code
+            </button>
+          </div>
+
+          <div class="divider-text"><span>OR ENTER UPI ID</span></div>
+
+          <div class="upi-vpa-input">
+            <input type="text" placeholder="username@okhdfcbank" [(ngModel)]="upiId" />
+          </div>
+        </div>
+
+        <!-- Cards Tab Content -->
+        <div *ngIf="paymentMethod === 'CREDIT_CARD'" class="gateway-tab-body">
+          <input type="text" placeholder="Card Number (4532 •••• •••• ••••)" />
+          <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <input type="text" placeholder="MM/YY" style="flex: 1;" />
+            <input type="password" placeholder="CVV" maxlength="3" style="flex: 1;" />
+          </div>
+        </div>
+
+        <!-- Net Banking Tab Content -->
+        <div *ngIf="paymentMethod === 'NET_BANKING'" class="gateway-tab-body">
+          <label style="font-size: 0.85rem; font-weight: 600; color: #475569; display: block; margin-bottom: 8px;">Select Your Bank</label>
+          <select style="width: 100%; padding: 0.65rem; border: 1.5px solid #cbd5e1; border-radius: 6px;">
+            <option>State Bank of India (SBI)</option>
+            <option>HDFC Bank</option>
+            <option>ICICI Bank</option>
+            <option>Axis Bank</option>
+            <option>Punjab National Bank</option>
+          </select>
+        </div>
+
+        <button
+          type="button"
+          class="pay-now-btn"
+          [disabled]="!customerName.trim() || !customerEmail.trim()"
+          (click)="processPayment()">
+          Pay ₹{{ finalTotal() }} & Confirm Booking
+        </button>
+      </div>
+
+      <!-- Right Column: Final Order Summary -->
+      <div class="order-recap-card">
+        <h3>Order Summary</h3>
+        <div class="recap-event-banner">
+          <h4>Vista Stage & Arena</h4>
+          <p>Main Auditorium • Live Performance</p>
+        </div>
+
+        <!-- Seats List -->
+        <div class="recap-seats-list">
+          <div *ngFor="let seat of selectedSeatsList()" class="recap-seat-item">
+            <div class="seat-badge-container">
+              <strong>Seat {{ getSeatLabel(seat) }}</strong>
+              <span class="tier-pill" [ngClass]="getSeatTier(seat).toLowerCase()">{{ getSeatTier(seat) }}</span>
+            </div>
+            <span>₹{{ seat.price }}</span>
+          </div>
+        </div>
+
+        <!-- PROMO CODE INPUT BOX -->
+        <div class="promo-section">
+          <div *ngIf="!appliedCoupon()" class="promo-input-group">
+            <input
+              type="text"
+              placeholder="Enter coupon (e.g. VISTA10)"
+              [(ngModel)]="promoInput"
+              (keyup.enter)="applyPromoCode()" />
+            <button type="button" (click)="applyPromoCode()">Apply</button>
+          </div>
+
+          <!-- Applied Coupon Banner -->
+          <div *ngIf="appliedCoupon()" class="applied-coupon-pill">
+            <span>🎉 <strong>{{ appliedCoupon()?.code }}</strong> applied</span>
+            <button type="button" class="remove-coupon-btn" (click)="removePromoCode()">✕ Remove</button>
+          </div>
+
+          <!-- Feedback messages -->
+          <small *ngIf="couponSuccess()" class="promo-msg success">{{ couponSuccess() }}</small>
+          <small *ngIf="couponError()" class="promo-msg error">{{ couponError() }}</small>
+        </div>
+
+        <!-- BILL BREAKDOWN WITH DISCOUNT -->
+        <div class="recap-pricing">
+          <div class="recap-row">
+            <span>Base Fare</span>
+            <span>₹{{ basePrice() }}</span>
+          </div>
+
+          <!-- Discount Row -->
+          <div *ngIf="discountAmount() > 0" class="recap-row discount-row">
+            <span>Discount ({{ appliedCoupon()?.code }})</span>
+            <span class="discount-value">- ₹{{ discountAmount() }}</span>
+          </div>
+
+          <div class="recap-row">
+            <span>Convenience Fee (₹40/seat)</span>
+            <span>₹{{ convenienceFee() }}</span>
+          </div>
+
+          <div class="recap-row">
+            <span>GST (18%)</span>
+            <span>₹{{ taxAmount() }}</span>
+          </div>
+
+          <hr />
+
+          <div class="recap-row total">
+            <span>Total Payable</span>
+            <span class="highlight-price">₹{{ finalTotal() }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       PAGE 3: CONFIRMED TICKET PASS WITH QR CODE
+       ======================================================== -->
+  <div *ngIf="bookingSuccess()" class="ticket-confirmation-card">
+    <div class="ticket-header">
+      <div class="check-icon">✓</div>
+      <h2>Booking Confirmed!</h2>
+      <p>Your tickets have been secured. Confirmation sent to <strong>{{ customerEmail }}</strong>.</p>
+    </div>
+
+    <div class="ticket-body">
+      <div class="ticket-row">
+        <span>Booking Reference:</span>
+        <strong>{{ bookingReference() }}</strong>
+      </div>
+      <div class="ticket-row">
+        <span>Event:</span>
+        <strong>Vista Stage & Arena</strong>
+      </div>
+      <div class="ticket-row">
+        <span>Reserved Seats:</span>
+        <span class="seat-badge-group">
+          <strong *ngFor="let s of selectedSeatsList()">{{ getSeatLabel(s) }} </strong>
+        </span>
+      </div>
+      <div class="ticket-row">
+        <span>Total Paid:</span>
+        <strong style="color: #16a34a;">₹{{ finalTotal() }}</strong>
+      </div>
+
+      <!-- Barcode Section on Ticket Pass -->
+      <div class="barcode-section">
+        <div class="barcode-wrapper">
+          <!-- Dynamic Barcode Image using Booking Reference -->
+          <img
+            [src]="'https://barcodeapi.org/api/128/' + (bookingReference() || 'VST-716861')"
+            alt="Ticket Barcode"
+            class="barcode-img" />
+          <span class="barcode-digits">{{ bookingReference() || 'VST-716861' }}</span>
+        </div>
+        <span class="scan-tagline">SCAN AT VENUE GATE FOR ENTRY</span>
+      </div>
+    </div>
+
+    <div class="ticket-actions">
+      <button type="button" class="btn-print" (click)="printTicket()">🖨️ Print Ticket</button>
+      <button type="button" class="btn-reset" (click)="resetBooking()">Book Another Show</button>
+    </div>
+  </div>
+
+  <!-- QR Code Modal (Opens on button click) -->
+  <div *ngIf="showUpiQrModal()" class="qr-modal-backdrop" (click)="closeUpiQrModal()">
+    <div class="qr-modal-content" (click)="$event.stopPropagation()">
+      <button type="button" class="modal-close-btn" (click)="closeUpiQrModal()">✕</button>
+
+      <div class="modal-header">
+        <div class="merchant-badge">Vista Stage & Arena</div>
+        <h3>Scan to Pay via UPI</h3>
+        <div class="qr-payable-amount">₹{{ finalTotal() }}</div>
+      </div>
+
+      <div class="qr-image-wrapper">
+        <img [src]="qrCodeImageUrl()" alt="UPI QR Code" class="live-qr" />
+        <div class="scan-note">Scan with GPay, PhonePe, Paytm or BHIM</div>
+      </div>
+
+      <div class="upi-apps-icons">
+        <span>Google Pay</span>
+        <span>PhonePe</span>
+        <span>Paytm</span>
+        <span>BHIM</span>
+      </div>
+
+      <button
+        type="button"
+        class="btn-confirm-payment"
+        [disabled]="isVerifyingPayment()"
+        (click)="confirmUpiPayment()">
+        <span *ngIf="!isVerifyingPayment()">✓ I Have Paid ₹{{ finalTotal() }}</span>
+        <span *ngIf="isVerifyingPayment()">⏳ Verifying with bank...</span>
+      </button>
+    </div>
+  </div>
+
+</div>
